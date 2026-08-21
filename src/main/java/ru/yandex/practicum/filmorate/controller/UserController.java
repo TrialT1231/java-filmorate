@@ -1,5 +1,8 @@
 package ru.yandex.practicum.filmorate.controller;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,17 +14,17 @@ import ru.yandex.practicum.filmorate.exception.NotFoundException;
 import ru.yandex.practicum.filmorate.exception.ValidationException;
 import ru.yandex.practicum.filmorate.model.User;
 
-import java.time.LocalDate;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @RestController
 @RequestMapping("/users")
 public class UserController {
-
     private final Map<Integer, User> users = new HashMap<>();
+    private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
     private int nextId = 1;
 
     @GetMapping
@@ -60,17 +63,11 @@ public class UserController {
     }
 
     private void validate(User user) {
-        if (user.getEmail() == null || user.getEmail().isBlank() || !user.getEmail().contains("@")) {
-            log.warn("Ошибка валидации пользователя: некорректный email ({})", user.getEmail());
-            throw new ValidationException("Электронная почта не может быть пустой и должна содержать символ @");
-        }
-        if (user.getLogin() == null || user.getLogin().isBlank() || user.getLogin().contains(" ")) {
-            log.warn("Ошибка валидации пользователя: некорректный логин ({})", user.getLogin());
-            throw new ValidationException("Логин не может быть пустым и содержать пробелы");
-        }
-        if (user.getBirthday() != null && user.getBirthday().isAfter(LocalDate.now())) {
-            log.warn("Ошибка валидации пользователя: дата рождения в будущем ({})", user.getBirthday());
-            throw new ValidationException("Дата рождения не может быть в будущем");
+        Set<ConstraintViolation<User>> violations = validator.validate(user);
+        if (!violations.isEmpty()) {
+            String message = violations.iterator().next().getMessage();
+            log.warn("Ошибка валидации пользователя: {}", message);
+            throw new ValidationException(message);
         }
     }
 

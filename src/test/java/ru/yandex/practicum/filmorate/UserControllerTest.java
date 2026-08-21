@@ -15,6 +15,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class UserControllerTest {
 
+    private static final String EMAIL_ERROR = "Электронная почта не может быть пустой и должна содержать символ @";
+    private static final String LOGIN_ERROR = "Логин не может быть пустым и содержать пробелы";
+    private static final String BIRTHDAY_ERROR = "Дата рождения не может быть в будущем";
+
     private UserController controller;
 
     @BeforeEach
@@ -58,35 +62,40 @@ class UserControllerTest {
     void shouldThrowWhenEmailIsBlank() {
         User user = validUser();
         user.setEmail(" ");
-        assertThrows(ValidationException.class, () -> controller.create(user));
+        ValidationException exception = assertThrows(ValidationException.class, () -> controller.create(user));
+        assertEquals(EMAIL_ERROR, exception.getMessage());
     }
 
     @Test
     void shouldThrowWhenEmailHasNoAtSymbol() {
         User user = validUser();
         user.setEmail("user.example.com");
-        assertThrows(ValidationException.class, () -> controller.create(user));
+        ValidationException exception = assertThrows(ValidationException.class, () -> controller.create(user));
+        assertEquals(EMAIL_ERROR, exception.getMessage());
     }
 
     @Test
     void shouldThrowWhenLoginIsBlank() {
         User user = validUser();
         user.setLogin(" ");
-        assertThrows(ValidationException.class, () -> controller.create(user));
+        ValidationException exception = assertThrows(ValidationException.class, () -> controller.create(user));
+        assertEquals(LOGIN_ERROR, exception.getMessage());
     }
 
     @Test
     void shouldThrowWhenLoginContainsSpaces() {
         User user = validUser();
         user.setLogin("user login");
-        assertThrows(ValidationException.class, () -> controller.create(user));
+        ValidationException exception = assertThrows(ValidationException.class, () -> controller.create(user));
+        assertEquals(LOGIN_ERROR, exception.getMessage());
     }
 
     @Test
     void shouldThrowWhenBirthdayIsInFuture() {
         User user = validUser();
         user.setBirthday(LocalDate.now().plusDays(1));
-        assertThrows(ValidationException.class, () -> controller.create(user));
+        ValidationException exception = assertThrows(ValidationException.class, () -> controller.create(user));
+        assertEquals(BIRTHDAY_ERROR, exception.getMessage());
     }
 
     @Test
