@@ -1,83 +1,78 @@
 package ru.yandex.practicum.filmorate.controller;
 
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.Validation;
-import jakarta.validation.Validator;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import ru.yandex.practicum.filmorate.exception.NotFoundException;
-import ru.yandex.practicum.filmorate.exception.ValidationException;
 import ru.yandex.practicum.filmorate.model.User;
+import ru.yandex.practicum.filmorate.service.UserService;
 
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.List;
 
 @Slf4j
 @RestController
 @RequestMapping("/users")
 public class UserController {
-    private final Map<Integer, User> users = new HashMap<>();
-    private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
-    private int nextId = 1;
+    private final UserService userService;
+
+    @Autowired
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
 
     @GetMapping
     public Collection<User> findAll() {
-        log.info("Получен запрос на список всех пользователей. Всего: {}", users.size());
-        return users.values();
+        log.info("Получен запрос на список всех пользователей");
+        return userService.findAll();
+    }
+
+    @GetMapping("/{id}")
+    public User findById(@PathVariable Integer id) {
+        log.info("Получен запрос на пользователя id={}", id);
+        return userService.findById(id);
     }
 
     @PostMapping
-    public User create(@RequestBody User user) {
+    public User create(@Valid @RequestBody User user) {
         log.info("Получен запрос на создание пользователя: {}", user);
-        validate(user);
-        applyNameFallback(user);
-        user.setId(getNextId());
-        users.put(user.getId(), user);
-        log.info("Пользователь успешно создан: id={}, login={}", user.getId(), user.getLogin());
-        return user;
+        return userService.create(user);
     }
 
     @PutMapping
-    public User update(@RequestBody User newUser) {
-        log.info("Получен запрос на обновление пользователя: {}", newUser);
-        if (newUser.getId() == null) {
-            log.warn("Не указан id пользователя при обновлении");
-            throw new ValidationException("Id должен быть указан");
-        }
-        if (!users.containsKey(newUser.getId())) {
-            log.warn("Пользователь с id={} не найден", newUser.getId());
-            throw new NotFoundException("Пользователь с id=" + newUser.getId() + " не найден");
-        }
-        validate(newUser);
-        applyNameFallback(newUser);
-        users.put(newUser.getId(), newUser);
-        log.info("Пользователь успешно обновлён: id={}, login={}", newUser.getId(), newUser.getLogin());
-        return newUser;
+    public User update(@Valid @RequestBody User user) {
+        log.info("Получен запрос на обновление пользователя: {}", user);
+        return userService.update(user);
     }
 
-    private void validate(User user) {
-        Set<ConstraintViolation<User>> violations = validator.validate(user);
-        if (!violations.isEmpty()) {
-            String message = violations.iterator().next().getMessage();
-            log.warn("Ошибка валидации пользователя: {}", message);
-            throw new ValidationException(message);
-        }
+    @PutMapping("/{id}/friends/{friendId}")
+    public void addFriend(@PathVariable Integer id, @PathVariable Integer friendId) {
+        log.info("Получен запрос на добавление в друзья: id={}, friendId={}", id, friendId);
+        userService.addFriend(id, friendId);
     }
 
-    private void applyNameFallback(User user) {
-        if (user.getName() == null || user.getName().isBlank()) {
-            user.setName(user.getLogin());
-        }
+    @DeleteMapping("/{id}/friends/{friendId}")
+    public void removeFriend(@PathVariable Integer id, @PathVariable Integer friendId) {
+        log.info("Получен запрос на удаление из друзей: id={}, friendId={}", id, friendId);
+        userService.removeFriend(id, friendId);
     }
 
-    private int getNextId() {
-        return nextId++;
+    @GetMapping("/{id}/friends")
+    public List<User> getFriends(@PathVariable Integer id) {
+        log.info("Получен запрос на список друзей пользователя id={}", id);
+        return userService.getFriends(id);
+    }
+
+    @GetMapping("/{id}/friends/common/{otherId}")
+    public List<User> getCommonFriends(@PathVariable Integer id, @PathVariable Integer otherId) {
+        log.info("Получен запрос на общих друзей: id={}, otherId={}", id, otherId);
+        return userService.getCommonFriends(id, otherId);
     }
 }
