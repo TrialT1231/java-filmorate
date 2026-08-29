@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import ru.yandex.practicum.filmorate.exception.NotFoundException;
 import ru.yandex.practicum.filmorate.exception.ValidationException;
+import ru.yandex.practicum.filmorate.model.FriendshipStatus;
 import ru.yandex.practicum.filmorate.model.User;
 import ru.yandex.practicum.filmorate.storage.user.UserStorage;
 
@@ -50,22 +51,34 @@ public class UserService {
     public void addFriend(Integer userId, Integer friendId) {
         User user = getUserOrThrow(userId);
         User friend = getUserOrThrow(friendId);
-        user.getFriends().add(friendId);
-        friend.getFriends().add(userId);
-        log.info("Пользователи id={} и id={} теперь друзья", userId, friendId);
+
+        if (friend.getFriends().containsKey(userId)) {
+            // friend уже отправлял запрос пользователю user — теперь дружба подтверждается с обеих сторон
+            user.getFriends().put(friendId, FriendshipStatus.CONFIRMED);
+            friend.getFriends().put(userId, FriendshipStatus.CONFIRMED);
+            log.info("Дружба между id={} и id={} подтверждена", userId, friendId);
+        } else {
+            // это первый запрос — дружба остаётся неподтверждённой до ответа friend
+            user.getFriends().put(friendId, FriendshipStatus.UNCONFIRMED);
+            log.info("Пользователь id={} отправил запрос на дружбу пользователю id={}", userId, friendId);
+        }
     }
 
     public void removeFriend(Integer userId, Integer friendId) {
         User user = getUserOrThrow(userId);
         User friend = getUserOrThrow(friendId);
-        user.getFriends().remove(friendId);
-        friend.getFriends().remove(userId);
-        log.info("Пользователи id={} и id={} больше не друзья", userId, friendId);
+
+        FriendshipStatus previousStatus = user.getFriends().remove(friendId);
+        if (previousStatus == FriendshipStatus.CONFIRMED) {
+            // если дружба была взаимной, у второй стороны она превращается обратно в неподтверждённую заявку
+            friend.getFriends().put(userId, FriendshipStatus.UNCONFIRMED);
+        }
+        log.info("Пользователь id={} удалил из друзей id={}", userId, friendId);
     }
 
     public List<User> getFriends(Integer userId) {
         User user = getUserOrThrow(userId);
-        return user.getFriends().stream()
+        return user.getFriends().keySet().stream()
                 .map(this::getUserOrThrow)
                 .collect(Collectors.toList());
     }
@@ -73,8 +86,8 @@ public class UserService {
     public List<User> getCommonFriends(Integer userId, Integer otherId) {
         User user = getUserOrThrow(userId);
         User other = getUserOrThrow(otherId);
-        Set<Integer> common = new HashSet<>(user.getFriends());
-        common.retainAll(other.getFriends());
+        Set<Integer> common = new HashSet<>(user.getFriends().keySet());
+        common.retainAll(other.getFriends().keySet());
         return common.stream()
                 .map(this::getUserOrThrow)
                 .collect(Collectors.toList());

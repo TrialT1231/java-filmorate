@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import ru.yandex.practicum.filmorate.controller.FilmController;
 import ru.yandex.practicum.filmorate.exception.NotFoundException;
 import ru.yandex.practicum.filmorate.model.Film;
+import ru.yandex.practicum.filmorate.model.Mpa;
 import ru.yandex.practicum.filmorate.service.FilmService;
 
 import java.time.LocalDate;
@@ -29,6 +30,7 @@ class FilmControllerTest {
     private static final String DESCRIPTION_ERROR = "Максимальная длина описания — 200 символов";
     private static final String RELEASE_DATE_ERROR = "Дата релиза не может быть раньше 28 декабря 1895 года";
     private static final String DURATION_ERROR = "Продолжительность фильма должна быть положительным числом";
+    private static final String MPA_ERROR = "У фильма должен быть указан рейтинг MPA";
 
     @Autowired
     private MockMvc mockMvc;
@@ -45,6 +47,12 @@ class FilmControllerTest {
         film.setDescription("Film description");
         film.setReleaseDate(LocalDate.of(2000, 1, 1));
         film.setDuration(120);
+
+        Mpa mpa = new Mpa();
+        mpa.setId(1);
+        mpa.setName("G");
+        film.setMpa(mpa);
+
         return film;
     }
 
@@ -110,6 +118,18 @@ class FilmControllerTest {
                         .content(objectMapper.writeValueAsString(film)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value(DURATION_ERROR));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenMpaIsNull() throws Exception {
+        Film film = validFilm();
+        film.setMpa(null);
+
+        mockMvc.perform(post("/films")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(film)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(MPA_ERROR));
     }
 
     @Test
