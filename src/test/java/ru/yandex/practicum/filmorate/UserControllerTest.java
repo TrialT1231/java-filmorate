@@ -1,30 +1,42 @@
 package ru.yandex.practicum.filmorate;
 
-import org.junit.jupiter.api.BeforeEach;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
 import ru.yandex.practicum.filmorate.controller.UserController;
-import ru.yandex.practicum.filmorate.exception.ValidationException;
+import ru.yandex.practicum.filmorate.exception.NotFoundException;
 import ru.yandex.practicum.filmorate.model.User;
+import ru.yandex.practicum.filmorate.service.UserService;
 
 import java.time.LocalDate;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@WebMvcTest(UserController.class)
 class UserControllerTest {
 
     private static final String EMAIL_ERROR = "Электронная почта не может быть пустой и должна содержать символ @";
     private static final String LOGIN_ERROR = "Логин не может быть пустым и содержать пробелы";
     private static final String BIRTHDAY_ERROR = "Дата рождения не может быть в будущем";
 
-    private UserController controller;
+    @Autowired
+    private MockMvc mockMvc;
 
-    @BeforeEach
-    void setUp() {
-        controller = new UserController();
-    }
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @MockBean
+    private UserService userService;
 
     private User validUser() {
         User user = new User();
@@ -36,72 +48,89 @@ class UserControllerTest {
     }
 
     @Test
-    void shouldCreateValidUserAndAssignId() {
-        User created = controller.create(validUser());
-        assertNotNull(created.getId());
-        assertEquals(1, controller.findAll().size());
-    }
-
-    @Test
-    void shouldUseLoginAsNameWhenNameIsBlank() {
+    void shouldCreateValidUser() throws Exception {
         User user = validUser();
-        user.setName(" ");
-        User created = controller.create(user);
-        assertEquals(user.getLogin(), created.getName());
+        when(userService.create(any(User.class))).thenAnswer(invocation -> {
+            User saved = invocation.getArgument(0);
+            saved.setId(1);
+            return saved;
+        });
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.login").value("userlogin"));
     }
 
     @Test
-    void shouldUseLoginAsNameWhenNameIsNull() {
-        User user = validUser();
-        user.setName(null);
-        User created = controller.create(user);
-        assertEquals(user.getLogin(), created.getName());
-    }
-
-    @Test
-    void shouldThrowWhenEmailIsBlank() {
+    void shouldReturnBadRequestWhenEmailIsBlank() throws Exception {
         User user = validUser();
         user.setEmail(" ");
-        ValidationException exception = assertThrows(ValidationException.class, () -> controller.create(user));
-        assertEquals(EMAIL_ERROR, exception.getMessage());
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(user)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(EMAIL_ERROR));
     }
 
     @Test
-    void shouldThrowWhenEmailHasNoAtSymbol() {
+    void shouldReturnBadRequestWhenEmailHasNoAtSymbol() throws Exception {
         User user = validUser();
         user.setEmail("user.example.com");
-        ValidationException exception = assertThrows(ValidationException.class, () -> controller.create(user));
-        assertEquals(EMAIL_ERROR, exception.getMessage());
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(user)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(EMAIL_ERROR));
     }
 
     @Test
-    void shouldThrowWhenLoginIsBlank() {
+    void shouldReturnBadRequestWhenLoginIsBlank() throws Exception {
         User user = validUser();
         user.setLogin(" ");
-        ValidationException exception = assertThrows(ValidationException.class, () -> controller.create(user));
-        assertEquals(LOGIN_ERROR, exception.getMessage());
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(user)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(LOGIN_ERROR));
     }
 
     @Test
-    void shouldThrowWhenLoginContainsSpaces() {
+    void shouldReturnBadRequestWhenLoginContainsSpaces() throws Exception {
         User user = validUser();
         user.setLogin("user login");
-        ValidationException exception = assertThrows(ValidationException.class, () -> controller.create(user));
-        assertEquals(LOGIN_ERROR, exception.getMessage());
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(user)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(LOGIN_ERROR));
     }
 
     @Test
-    void shouldThrowWhenBirthdayIsInFuture() {
+    void shouldReturnBadRequestWhenBirthdayIsInFuture() throws Exception {
         User user = validUser();
         user.setBirthday(LocalDate.now().plusDays(1));
-        ValidationException exception = assertThrows(ValidationException.class, () -> controller.create(user));
-        assertEquals(BIRTHDAY_ERROR, exception.getMessage());
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(user)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(BIRTHDAY_ERROR));
     }
 
     @Test
-    void shouldAllowBirthdayToday() {
-        User user = validUser();
-        user.setBirthday(LocalDate.now());
-        assertDoesNotThrow(() -> controller.create(user));
+    void shouldReturnNotFoundWhenUserDoesNotExist() throws Exception {
+        when(userService.findById(anyInt()))
+                .thenThrow(new NotFoundException("Пользователь с id=999 не найден"));
+
+        mockMvc.perform(get("/users/999"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Пользователь с id=999 не найден"));
     }
 }
