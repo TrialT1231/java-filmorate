@@ -1,16 +1,21 @@
 package ru.yandex.practicum.filmorate.storage.film;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import ru.yandex.practicum.filmorate.model.Film;
 
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
+@Qualifier("inMemoryFilmStorage")
 public class InMemoryFilmStorage implements FilmStorage {
     private final Map<Integer, Film> films = new HashMap<>();
     private int nextId = 1;
@@ -44,6 +49,30 @@ public class InMemoryFilmStorage implements FilmStorage {
     @Override
     public Optional<Film> findById(Integer id) {
         return Optional.ofNullable(films.get(id));
+    }
+
+    @Override
+    public void addLike(Integer filmId, Integer userId) {
+        Film film = films.get(filmId);
+        if (film != null) {
+            film.getLikes().add(userId);
+        }
+    }
+
+    @Override
+    public void removeLike(Integer filmId, Integer userId) {
+        Film film = films.get(filmId);
+        if (film != null) {
+            film.getLikes().remove(userId);
+        }
+    }
+
+    @Override
+    public List<Film> getPopular(int count) {
+        return films.values().stream()
+                .sorted(Comparator.comparingInt((Film f) -> f.getLikes().size()).reversed())
+                .limit(count)
+                .collect(Collectors.toList());
     }
 
     private int getNextId() {
