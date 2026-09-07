@@ -12,6 +12,8 @@ import ru.yandex.practicum.filmorate.storage.user.UserStorage;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -88,8 +90,10 @@ public class FilmService {
 
     private void checkMpaAndGenresExist(Film film) {
         mpaService.findById(film.getMpa().getId());
-        for (Genre genre : film.getGenres()) {
-            genreService.findById(genre.getId());
-        }
+
+        Set<Integer> genreIds = film.getGenres().stream()
+                .map(Genre::getId)
+                .collect(Collectors.toSet());
+        genreService.checkAllExist(genreIds);
     }
 }

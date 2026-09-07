@@ -13,12 +13,16 @@ import ru.yandex.practicum.filmorate.storage.genre.GenreRowMapper;
 import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Component
 @Qualifier("filmDbStorage")
@@ -37,7 +41,12 @@ public class FilmDbStorage implements FilmStorage {
             "SELECT g.genre_id, g.name FROM film_genres fg " +
                     "JOIN genres g ON fg.genre_id = g.genre_id " +
                     "WHERE fg.film_id = ? ORDER BY g.genre_id";
+    private static final String FIND_GENRES_FOR_ALL_FILMS_QUERY =
+            "SELECT fg.film_id, g.genre_id, g.name FROM film_genres fg " +
+                    "JOIN genres g ON fg.genre_id = g.genre_id " +
+                    "ORDER BY fg.film_id, g.genre_id";
     private static final String FIND_LIKES_BY_FILM_QUERY = "SELECT user_id FROM likes WHERE film_id = ?";
+    private static final String FIND_LIKES_FOR_ALL_FILMS_QUERY = "SELECT film_id, user_id FROM likes";
     private static final String DELETE_FILM_GENRES_QUERY = "DELETE FROM film_genres WHERE film_id = ?";
     private static final String INSERT_FILM_GENRE_QUERY =
             "INSERT INTO film_genres (film_id, genre_id) VALUES (?, ?)";
@@ -59,7 +68,7 @@ public class FilmDbStorage implements FilmStorage {
     @Override
     public Collection<Film> findAll() {
         List<Film> films = jdbcTemplate.query(FIND_ALL_QUERY, new FilmRowMapper());
-        films.forEach(this::enrich);
+        enrichAll(films);
         return films;
     }
 
@@ -78,7 +87,9 @@ public class FilmDbStorage implements FilmStorage {
 
         film.setId(keyHolder.getKey().intValue());
         updateGenres(film);
-        return findById(film.getId()).orElseThrow();
+        // likes у нового фильма всегда пустые — незачем ходить в БД, просто фиксируем это на объекте
+        film.setLikes(new HashSet<>());
+        return film;
     }
 
     @Override
@@ -91,7 +102,12 @@ public class FilmDbStorage implements FilmStorage {
                 film.getMpa().getId(),
                 film.getId());
         updateGenres(film);
-        return findById(film.getId()).orElseThrow();
+        // лайки update не трогает — подтягиваем их одним отдельным запросом, а не через полный findById
+        film.setLikes(new HashSet<>(jdbcTemplate.query(
+                FIND_LIKES_BY_FILM_QUERY,
+                (rs, rowNum) -> rs.getInt("user_id"),
+                film.getId())));
+        return film;
     }
 
     @Override
@@ -103,7 +119,7 @@ public class FilmDbStorage implements FilmStorage {
     public Optional<Film> findById(Integer id) {
         List<Film> result = jdbcTemplate.query(FIND_BY_ID_QUERY, new FilmRowMapper(), id);
         Optional<Film> film = result.stream().findFirst();
-        film.ifPresent(this::enrich);
+        film.ifPresent(this::enrichOne);
         return film;
     }
 
@@ -120,22 +136,31 @@ public class FilmDbStorage implements FilmStorage {
     @Override
     public List<Film> getPopular(int count) {
         List<Film> films = jdbcTemplate.query(FIND_POPULAR_QUERY, new FilmRowMapper(), count);
-        films.forEach(this::enrich);
+        enrichAll(films);
         return films;
     }
 
     private void updateGenres(Film film) {
         jdbcTemplate.update(DELETE_FILM_GENRES_QUERY, film.getId());
+
         Set<Integer> genreIds = new LinkedHashSet<>();
         for (Genre genre : film.getGenres()) {
             genreIds.add(genre.getId());
         }
-        for (Integer genreId : genreIds) {
-            jdbcTemplate.update(INSERT_FILM_GENRE_QUERY, film.getId(), genreId);
+        if (genreIds.isEmpty()) {
+            return;
         }
+
+        List<Integer> ids = new ArrayList<>(genreIds);
+        jdbcTemplate.batchUpdate(INSERT_FILM_GENRE_QUERY, ids, ids.size(),
+                (ps, genreId) -> {
+                    ps.setInt(1, film.getId());
+                    ps.setInt(2, genreId);
+                });
     }
 
-    private void enrich(Film film) {
+    // единичный enrich для findById — здесь один фильм, поэтому два точечных запроса оправданы
+    private void enrichOne(Film film) {
         List<Genre> genres = jdbcTemplate.query(FIND_GENRES_BY_FILM_QUERY, new GenreRowMapper(), film.getId());
         film.setGenres(new LinkedHashSet<>(genres));
 
@@ -144,5 +169,33 @@ public class FilmDbStorage implements FilmStorage {
                 (rs, rowNum) -> rs.getInt("user_id"),
                 film.getId());
         film.setLikes(new HashSet<>(likes));
+    }
+
+    // enrich для списков — ровно два запроса независимо от количества фильмов
+    private void enrichAll(List<Film> films) {
+        if (films.isEmpty()) {
+            return;
+        }
+
+        Map<Integer, Set<Genre>> genresByFilmId = new HashMap<>();
+        jdbcTemplate.query(FIND_GENRES_FOR_ALL_FILMS_QUERY, rs -> {
+            int filmId = rs.getInt("film_id");
+            Genre genre = new Genre();
+            genre.setId(rs.getInt("genre_id"));
+            genre.setName(rs.getString("name"));
+            genresByFilmId.computeIfAbsent(filmId, id -> new LinkedHashSet<>()).add(genre);
+        });
+
+        Map<Integer, Set<Integer>> likesByFilmId = new HashMap<>();
+        jdbcTemplate.query(FIND_LIKES_FOR_ALL_FILMS_QUERY, rs -> {
+            int filmId = rs.getInt("film_id");
+            int userId = rs.getInt("user_id");
+            likesByFilmId.computeIfAbsent(filmId, id -> new HashSet<>()).add(userId);
+        });
+
+        for (Film film : films) {
+            film.setGenres(genresByFilmId.getOrDefault(film.getId(), new LinkedHashSet<>()));
+            film.setLikes(likesByFilmId.getOrDefault(film.getId(), new HashSet<>()));
+        }
     }
 }
