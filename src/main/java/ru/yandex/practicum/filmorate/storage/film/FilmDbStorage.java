@@ -40,12 +40,14 @@ public class FilmDbStorage implements FilmStorage {
             "SELECT g.genre_id, g.name FROM film_genres fg " +
                     "JOIN genres g ON fg.genre_id = g.genre_id " +
                     "WHERE fg.film_id = ? ORDER BY g.genre_id";
-    private static final String FIND_GENRES_FOR_ALL_FILMS_QUERY =
+    private static final String FIND_GENRES_FOR_FILMS_QUERY_TEMPLATE =
             "SELECT fg.film_id, g.genre_id, g.name FROM film_genres fg " +
                     "JOIN genres g ON fg.genre_id = g.genre_id " +
+                    "WHERE fg.film_id IN (%s) " +
                     "ORDER BY fg.film_id, g.genre_id";
     private static final String FIND_LIKES_BY_FILM_QUERY = "SELECT user_id FROM likes WHERE film_id = ?";
-    private static final String FIND_LIKES_FOR_ALL_FILMS_QUERY = "SELECT film_id, user_id FROM likes";
+    private static final String FIND_LIKES_FOR_FILMS_QUERY_TEMPLATE =
+            "SELECT film_id, user_id FROM likes WHERE film_id IN (%s)";
     private static final String DELETE_FILM_GENRES_QUERY = "DELETE FROM film_genres WHERE film_id = ?";
     private static final String INSERT_FILM_GENRE_QUERY =
             "INSERT INTO film_genres (film_id, genre_id) VALUES (?, ?)";
@@ -86,7 +88,6 @@ public class FilmDbStorage implements FilmStorage {
 
         film.setId(keyHolder.getKey().intValue());
         updateGenres(film);
-        // likes у нового фильма всегда пустые — незачем ходить в БД, просто фиксируем это на объекте
         film.setLikes(new HashSet<>());
         return film;
     }
@@ -101,7 +102,6 @@ public class FilmDbStorage implements FilmStorage {
                 film.getMpa().getId(),
                 film.getId());
         updateGenres(film);
-        // лайки update не трогает — подтягиваем их одним отдельным запросом, а не через полный findById
         film.setLikes(new HashSet<>(jdbcTemplate.query(
                 FIND_LIKES_BY_FILM_QUERY,
                 (rs, rowNum) -> rs.getInt("user_id"),
@@ -158,7 +158,6 @@ public class FilmDbStorage implements FilmStorage {
                 });
     }
 
-    // единичный enrich для findById — здесь один фильм, поэтому два точечных запроса оправданы
     private void enrichOne(Film film) {
         List<Genre> genres = jdbcTemplate.query(FIND_GENRES_BY_FILM_QUERY, new GenreRowMapper(), film.getId());
         film.setGenres(new LinkedHashSet<>(genres));
@@ -170,27 +169,32 @@ public class FilmDbStorage implements FilmStorage {
         film.setLikes(new HashSet<>(likes));
     }
 
-    // enrich для списков — ровно два запроса независимо от количества фильмов
+    // enrich для списков — два запроса, но только по тем film_id, что реально нужны
     private void enrichAll(List<Film> films) {
         if (films.isEmpty()) {
             return;
         }
 
+        List<Integer> filmIds = films.stream().map(Film::getId).toList();
+        String placeholders = String.join(", ", filmIds.stream().map(id -> "?").toList());
+
         Map<Integer, Set<Genre>> genresByFilmId = new HashMap<>();
-        jdbcTemplate.query(FIND_GENRES_FOR_ALL_FILMS_QUERY, rs -> {
+        String genresQuery = String.format(FIND_GENRES_FOR_FILMS_QUERY_TEMPLATE, placeholders);
+        jdbcTemplate.query(genresQuery, rs -> {
             int filmId = rs.getInt("film_id");
             Genre genre = new Genre();
             genre.setId(rs.getInt("genre_id"));
             genre.setName(rs.getString("name"));
             genresByFilmId.computeIfAbsent(filmId, id -> new LinkedHashSet<>()).add(genre);
-        });
+        }, filmIds.toArray());
 
         Map<Integer, Set<Integer>> likesByFilmId = new HashMap<>();
-        jdbcTemplate.query(FIND_LIKES_FOR_ALL_FILMS_QUERY, rs -> {
+        String likesQuery = String.format(FIND_LIKES_FOR_FILMS_QUERY_TEMPLATE, placeholders);
+        jdbcTemplate.query(likesQuery, rs -> {
             int filmId = rs.getInt("film_id");
             int userId = rs.getInt("user_id");
             likesByFilmId.computeIfAbsent(filmId, id -> new HashSet<>()).add(userId);
-        });
+        }, filmIds.toArray());
 
         for (Film film : films) {
             film.setGenres(genresByFilmId.getOrDefault(film.getId(), new LinkedHashSet<>()));
